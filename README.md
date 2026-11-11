@@ -28,8 +28,10 @@ python3 v1_analysis.py
 | `summary.txt` | 数据行数、列名、均值、标准差、最小值、最大值 |
 | `v1_clean.csv` | 完成日期解析、类型转换和无效记录剔除后的数据 |
 | `v1_monthly_summary.csv` | 月度观测数、均价、中位数、极值、成交量与月均价涨幅 |
+| `v1_data_quality.csv` | 无效日期、缺失或非法数值、非正价格、负成交量及重复记录统计 |
+| `v1_overall_statistics.csv` | 总体价格、成交量、时间范围和价格—成交量相关系数 |
 | `v1_monthly_dashboard.png` | 月均价走势与月度成交量双面板图 |
-| `v1_report.md` | 自动生成的月度结论和范围说明 |
+| `v1_report.md` | 数据来源、质量、总体指标、月度结论与限制说明 |
 
 终端会同时打印同样的统计结果。
 
@@ -47,6 +49,8 @@ data-project/
 ├── summary.txt         # 生成物：统计摘要
 ├── v1_clean.csv        # 生成物：清洗结果
 ├── v1_monthly_summary.csv
+├── v1_data_quality.csv
+├── v1_overall_statistics.csv
 ├── v1_monthly_dashboard.png
 ├── v1_report.md
 └── README.md
@@ -58,9 +62,18 @@ data-project/
 
 真实数据获取脚本为 `fetch_data.py`，因接口不稳定，本仓库默认使用可复现的模拟数据。
 
+## v1 口径
+
+- 日期无法解析、价格或成交量无法转成数字的记录会被剔除。
+- 价格必须大于 0，成交量不得小于 0。
+- 完全重复记录只统计、不自动删除，避免误删合法的同日期观测。
+- 月度价格变化率以上月平均价格为基准；第一个月没有变化率。
+- 价格与成交量相关系数只描述样本关系，不代表因果关系。
+
 ## 说明
 
-脚本使用 matplotlib 的 `Agg` 后端，可在无图形界面的终端中直接运行，不会弹出窗口。
+- `data.csv` 是可复现的模拟价格数据，仅用于验证分析流程，不代表真实市场结论。
+- 脚本使用 matplotlib 的 `Agg` 后端，可在无图形界面的终端中直接运行，不会弹出窗口。
 
 ## 测试
 

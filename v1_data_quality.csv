@@ -1,0 +1,2 @@
+raw_rows,clean_rows,dropped_rows,invalid_or_missing_date,invalid_or_missing_price,invalid_or_missing_volume,nonpositive_price,negative_volume,duplicate_rows
+200,200,0,0,0,0,0,0,0

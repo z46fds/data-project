@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from v1_analysis import build_report, clean_data, monthly_summary, run_pipeline
+from v1_analysis import (
+    build_report,
+    clean_data,
+    data_quality,
+    monthly_summary,
+    overall_statistics,
+    run_pipeline,
+)
 
 
 class V1AnalysisTest(unittest.TestCase):
@@ -55,6 +62,50 @@ class V1AnalysisTest(unittest.TestCase):
         self.assertAlmostEqual(float(feb["average_price"]), 121.0)
         self.assertAlmostEqual(float(feb["price_change_pct"]), 15.238095, places=5)
 
+    def test_data_quality_reports_detailed_invalid_counts(self):
+        raw = pd.DataFrame(
+            {
+                "date": ["2026-01-01", "2026-01-01", "bad-date", "2026-01-02", "2026-01-03", "2026-01-04"],
+                "price": [100.0, 100.0, 80.0, None, -1.0, 90.0],
+                "volume": [10, 10, 20, 30, 40, -5],
+            }
+        )
+        cleaned = clean_data(raw)
+
+        quality = data_quality(raw, cleaned)
+
+        self.assertEqual(quality["raw_rows"], 6)
+        self.assertEqual(quality["clean_rows"], 2)
+        self.assertEqual(quality["dropped_rows"], 4)
+        self.assertEqual(quality["invalid_or_missing_date"], 1)
+        self.assertEqual(quality["invalid_or_missing_price"], 1)
+        self.assertEqual(quality["invalid_or_missing_volume"], 0)
+        self.assertEqual(quality["nonpositive_price"], 1)
+        self.assertEqual(quality["negative_volume"], 1)
+        self.assertEqual(quality["duplicate_rows"], 1)
+
+    def test_overall_statistics_computes_price_volume_and_correlation(self):
+        cleaned = clean_data(
+            pd.DataFrame(
+                {
+                    "date": ["2026-01-01", "2026-01-15"],
+                    "price": [100.0, 110.0],
+                    "volume": [10, 20],
+                }
+            )
+        )
+
+        overall = overall_statistics(cleaned)
+
+        self.assertEqual(overall["observations"], 2)
+        self.assertEqual(overall["start_date"], "2026-01-01")
+        self.assertEqual(overall["end_date"], "2026-01-15")
+        self.assertAlmostEqual(overall["average_price"], 105.0)
+        self.assertAlmostEqual(overall["median_price"], 105.0)
+        self.assertAlmostEqual(overall["price_std"], 7.071068, places=5)
+        self.assertEqual(overall["total_volume"], 30)
+        self.assertAlmostEqual(overall["price_volume_correlation"], 1.0)
+
     def test_report_identifies_high_low_and_most_active_month(self):
         summary = pd.DataFrame(
             {
@@ -96,6 +147,8 @@ class V1AnalysisTest(unittest.TestCase):
             for name in [
                 "v1_clean.csv",
                 "v1_monthly_summary.csv",
+                "v1_data_quality.csv",
+                "v1_overall_statistics.csv",
                 "v1_monthly_dashboard.png",
                 "v1_report.md",
             ]:
@@ -104,6 +157,24 @@ class V1AnalysisTest(unittest.TestCase):
                 self.assertGreater(path.stat().st_size, 0, name)
             self.assertEqual(result["clean_rows"], 3)
             self.assertEqual(result["dropped_rows"], 1)
+            report = (base / "v1_report.md").read_text(encoding="utf-8")
+            self.assertIn("模拟数据", report)
+            self.assertIn("无效或缺失日期：1 行", report)
+
+    def test_pipeline_rejects_csv_without_valid_rows(self):
+        raw = pd.DataFrame(
+            {
+                "date": ["bad-date"],
+                "price": [-1.0],
+                "volume": [-10],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "data.csv").write_text(raw.to_csv(index=False), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "清洗后没有有效记录"):
+                run_pipeline(base_dir=base)
 
 
 if __name__ == "__main__":

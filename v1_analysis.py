@@ -61,10 +61,53 @@ def monthly_summary(cleaned: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def data_quality(raw: pd.DataFrame, cleaned: pd.DataFrame) -> dict[str, int]:
+    """Return detailed data-quality counts; condition counts may overlap."""
+    parsed_dates = pd.to_datetime(raw["date"], errors="coerce")
+    parsed_prices = pd.to_numeric(raw["price"], errors="coerce")
+    parsed_volumes = pd.to_numeric(raw["volume"], errors="coerce")
+    return {
+        "raw_rows": len(raw),
+        "clean_rows": len(cleaned),
+        "dropped_rows": len(raw) - len(cleaned),
+        "invalid_or_missing_date": int(parsed_dates.isna().sum()),
+        "invalid_or_missing_price": int(parsed_prices.isna().sum()),
+        "invalid_or_missing_volume": int(parsed_volumes.isna().sum()),
+        "nonpositive_price": int((parsed_prices.notna() & (parsed_prices <= 0)).sum()),
+        "negative_volume": int((parsed_volumes.notna() & (parsed_volumes < 0)).sum()),
+        "duplicate_rows": int(raw.duplicated().sum()),
+    }
+
+
+def overall_statistics(cleaned: pd.DataFrame) -> dict[str, object]:
+    """Compute overall descriptive statistics for the cleaned dataset."""
+    if cleaned.empty:
+        raise ValueError("清洗后没有有效记录")
+
+    prices = cleaned["price"]
+    volumes = cleaned["volume"]
+    correlation = prices.corr(volumes)
+    return {
+        "observations": len(cleaned),
+        "start_date": cleaned["date"].min().strftime("%Y-%m-%d"),
+        "end_date": cleaned["date"].max().strftime("%Y-%m-%d"),
+        "average_price": float(prices.mean()),
+        "median_price": float(prices.median()),
+        "price_std": float(prices.std()),
+        "minimum_price": float(prices.min()),
+        "maximum_price": float(prices.max()),
+        "average_volume": float(volumes.mean()),
+        "total_volume": int(volumes.sum()),
+        "price_volume_correlation": float(correlation),
+    }
+
+
 def build_report(
     summary: pd.DataFrame,
     clean_rows: int,
     dropped_rows: int,
+    quality: dict[str, int] | None = None,
+    overall: dict[str, object] | None = None,
 ) -> str:
     """Build a short, evidence-based Markdown report from monthly metrics."""
     if summary.empty:
@@ -82,15 +125,52 @@ def build_report(
             f"最大月均价涨幅：{change_month}（{changes.loc[change_month]:.2f}%）"
         )
 
-    return "\n".join(
+    lines = [
+        "# Data Project v1 分析报告",
+        "",
+        "数据来源说明：data.csv 为可复现的模拟数据，仅用于验证分析流程，不代表真实市场结论。",
+        "",
+        "## 数据概览",
+        "",
+        f"- 有效记录：{clean_rows} 行",
+        f"- 清理剔除：{dropped_rows} 行",
+        f"- 覆盖月份：{summary.index.min()} 至 {summary.index.max()}",
+    ]
+
+    if quality:
+        lines.extend(
+            [
+                "",
+                "## 数据质量",
+                "",
+                f"- 无效或缺失日期：{quality['invalid_or_missing_date']} 行",
+                f"- 无效或缺失价格：{quality['invalid_or_missing_price']} 行",
+                f"- 无效或缺失成交量：{quality['invalid_or_missing_volume']} 行",
+                f"- 非正价格：{quality['nonpositive_price']} 行",
+                f"- 负成交量：{quality['negative_volume']} 行",
+                f"- 完全重复记录：{quality['duplicate_rows']} 行（仅标记，不自动删除）",
+            ]
+        )
+
+    if overall:
+        lines.extend(
+            [
+                "",
+                "## 总体指标",
+                "",
+                f"- 时间范围：{overall['start_date']} 至 {overall['end_date']}",
+                f"- 价格均值：{overall['average_price']:.2f}",
+                f"- 价格中位数：{overall['median_price']:.2f}",
+                f"- 价格标准差：{overall['price_std']:.2f}",
+                f"- 价格区间：{overall['minimum_price']:.2f} 至 {overall['maximum_price']:.2f}",
+                f"- 成交量均值：{overall['average_volume']:.2f}",
+                f"- 成交量合计：{overall['total_volume']}",
+                f"- 价格与成交量相关系数：{overall['price_volume_correlation']:.3f}",
+            ]
+        )
+
+    lines.extend(
         [
-            "# Data Project v1 分析报告",
-            "",
-            "## 数据概览",
-            "",
-            f"- 有效记录：{clean_rows} 行",
-            f"- 清理剔除：{dropped_rows} 行",
-            f"- 覆盖月份：{summary.index.min()} 至 {summary.index.max()}",
             "",
             "## 月度结论",
             "",
@@ -105,6 +185,7 @@ def build_report(
             "",
         ]
     )
+    return "\n".join(lines)
 
 
 def run_pipeline(base_dir: str | Path | None = None) -> dict[str, object]:
@@ -116,16 +197,28 @@ def run_pipeline(base_dir: str | Path | None = None) -> dict[str, object]:
 
     raw = pd.read_csv(input_path)
     cleaned = clean_data(raw)
+    if cleaned.empty:
+        raise ValueError("清洗后没有有效记录")
+
+    quality = data_quality(raw, cleaned)
+    overall = overall_statistics(cleaned)
     summary = monthly_summary(cleaned)
     dropped_rows = len(raw) - len(cleaned)
 
     clean_path = base / "v1_clean.csv"
     summary_path = base / "v1_monthly_summary.csv"
+    quality_path = base / "v1_data_quality.csv"
+    overall_path = base / "v1_overall_statistics.csv"
     chart_path = base / "v1_monthly_dashboard.png"
     report_path = base / "v1_report.md"
 
     cleaned.to_csv(clean_path, index=False, date_format="%Y-%m-%d")
     summary.to_csv(summary_path, index_label="month", float_format="%.6f")
+    pd.DataFrame([quality]).to_csv(quality_path, index=False)
+    pd.DataFrame(overall.items(), columns=["metric", "value"]).to_csv(
+        overall_path,
+        index=False,
+    )
 
     fig, (price_ax, volume_ax) = plt.subplots(
         2,
@@ -156,7 +249,13 @@ def run_pipeline(base_dir: str | Path | None = None) -> dict[str, object]:
     fig.savefig(chart_path, dpi=160)
     plt.close(fig)
 
-    report = build_report(summary, clean_rows=len(cleaned), dropped_rows=dropped_rows)
+    report = build_report(
+        summary,
+        clean_rows=len(cleaned),
+        dropped_rows=dropped_rows,
+        quality=quality,
+        overall=overall,
+    )
     report_path.write_text(report, encoding="utf-8")
 
     return {
@@ -165,6 +264,8 @@ def run_pipeline(base_dir: str | Path | None = None) -> dict[str, object]:
         "months": len(summary),
         "clean_path": clean_path,
         "summary_path": summary_path,
+        "quality_path": quality_path,
+        "overall_path": overall_path,
         "chart_path": chart_path,
         "report_path": report_path,
     }
