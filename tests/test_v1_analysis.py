@@ -15,6 +15,11 @@ from v1_analysis import (
 
 
 class V1AnalysisTest(unittest.TestCase):
+    def test_repository_contains_default_input_dataset(self):
+        from v1_analysis import BASE_DIR
+
+        self.assertTrue((BASE_DIR / "data.csv").is_file())
+
     def test_clean_data_parses_and_filters_invalid_rows(self):
         raw = pd.DataFrame(
             {
