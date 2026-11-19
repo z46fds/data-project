@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -163,8 +164,48 @@ class V1AnalysisTest(unittest.TestCase):
             self.assertEqual(result["clean_rows"], 3)
             self.assertEqual(result["dropped_rows"], 1)
             report = (base / "v1_report.md").read_text(encoding="utf-8")
-            self.assertIn("模拟数据", report)
+            self.assertIn("无法确认数据来源", report)
             self.assertIn("无效或缺失日期：1 行", report)
+
+    def test_pipeline_uses_dataset_metadata_in_report(self):
+        raw = pd.DataFrame(
+            {
+                "date": ["2026-01-01", "2026-02-01"],
+                "price": [100.0, 110.0],
+                "volume": [10, 20],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "data.csv").write_text(raw.to_csv(index=False), encoding="utf-8")
+            (base / "data_metadata.json").write_text(
+                json.dumps(
+                    {"source_note": "测试用真实来源说明"},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            run_pipeline(base_dir=base)
+
+            report = (base / "v1_report.md").read_text(encoding="utf-8")
+            self.assertIn("数据来源说明：测试用真实来源说明", report)
+
+    def test_pipeline_rejects_invalid_metadata_json(self):
+        raw = pd.DataFrame(
+            {
+                "date": ["2026-01-01"],
+                "price": [100.0],
+                "volume": [10],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "data.csv").write_text(raw.to_csv(index=False), encoding="utf-8")
+            (base / "data_metadata.json").write_text("{invalid", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "数据说明文件不是有效 JSON"):
+                run_pipeline(base_dir=base)
 
     def test_pipeline_rejects_csv_without_valid_rows(self):
         raw = pd.DataFrame(

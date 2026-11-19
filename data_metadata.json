@@ -1,0 +1,6 @@
+{
+  "source": "reproducible simulated dataset",
+  "source_note": "data.csv 为可复现的模拟数据，仅用于验证分析流程，不代表真实市场结论。",
+  "rows": 200,
+  "fields": ["date", "price", "volume"]
+}

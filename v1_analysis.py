@@ -1,5 +1,6 @@
 """Data-project v1: cleaned, monthly analysis pipeline."""
 
+import json
 import os
 from pathlib import Path
 
@@ -17,6 +18,9 @@ import pandas as pd
 
 
 REQUIRED_COLUMNS = ("date", "price", "volume")
+DEFAULT_SOURCE_NOTE = (
+    "输入文件为 data.csv；未提供 data_metadata.json，无法确认数据来源。"
+)
 
 
 def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
@@ -37,7 +41,11 @@ def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
         & (cleaned["price"] > 0)
         & (cleaned["volume"] >= 0)
     )
-    cleaned = cleaned.loc[valid].sort_values("date").reset_index(drop=True)
+    cleaned = (
+        cleaned.loc[valid]
+        .sort_values("date", kind="mergesort")
+        .reset_index(drop=True)
+    )
     cleaned["month"] = cleaned["date"].dt.strftime("%Y-%m")
     return cleaned
 
@@ -108,6 +116,7 @@ def build_report(
     dropped_rows: int,
     quality: dict[str, int] | None = None,
     overall: dict[str, object] | None = None,
+    source_note: str = DEFAULT_SOURCE_NOTE,
 ) -> str:
     """Build a short, evidence-based Markdown report from monthly metrics."""
     if summary.empty:
@@ -128,7 +137,7 @@ def build_report(
     lines = [
         "# Data Project v1 分析报告",
         "",
-        "数据来源说明：data.csv 为可复现的模拟数据，仅用于验证分析流程，不代表真实市场结论。",
+        f"数据来源说明：{source_note}",
         "",
         "## 数据概览",
         "",
@@ -196,6 +205,14 @@ def run_pipeline(base_dir: str | Path | None = None) -> dict[str, object]:
         raise FileNotFoundError(f"找不到输入文件: {input_path}")
 
     raw = pd.read_csv(input_path)
+    metadata_path = base / "data_metadata.json"
+    source_note = DEFAULT_SOURCE_NOTE
+    if metadata_path.is_file():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"数据说明文件不是有效 JSON: {metadata_path}") from exc
+        source_note = metadata.get("source_note", source_note)
     cleaned = clean_data(raw)
     if cleaned.empty:
         raise ValueError("清洗后没有有效记录")
@@ -255,6 +272,7 @@ def run_pipeline(base_dir: str | Path | None = None) -> dict[str, object]:
         dropped_rows=dropped_rows,
         quality=quality,
         overall=overall,
+        source_note=source_note,
     )
     report_path.write_text(report, encoding="utf-8")
 
